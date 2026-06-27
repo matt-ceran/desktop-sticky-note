@@ -312,7 +312,7 @@ fn app_did_finish_launching() {
 
 unsafe fn setup_status_menu() {
     let status_item: id =
-        msg_send![NSStatusBar::systemStatusBar(nil), statusItemWithLength: 24.0f64];
+        msg_send![NSStatusBar::systemStatusBar(nil), statusItemWithLength: -1.0f64];
     let button: id = msg_send![status_item, button];
     set_status_icon(button);
 
@@ -437,10 +437,10 @@ unsafe fn set_status_icon(button: id) {
     if image != nil {
         let _: () = msg_send![image, setTemplate: YES];
         let _: () = msg_send![button, setImage: image];
-        let _: () = msg_send![button, setTitle: ns_string("")];
-    } else {
-        let _: () = msg_send![button, setTitle: ns_string("Note")];
+        let _: () = msg_send![button, setImagePosition: 2u64];
+        let _: () = msg_send![button, setImageScaling: 0u64];
     }
+    let _: () = msg_send![button, setTitle: ns_string(" Sticky")];
     let _: () = msg_send![button, setToolTip: ns_string(APP_NAME)];
 }
 

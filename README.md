@@ -13,7 +13,7 @@ A tiny native macOS sticky note app written in Rust.
 
 ## Use
 
-Click the sticky-note icon in the macOS menu bar.
+Click the `Sticky` item in the macOS menu bar.
 
 - `New Note` creates another sticky note.
 - `Note Color`, `Text Color`, `Font`, and `Font Size` apply to the note you last clicked or typed in.
