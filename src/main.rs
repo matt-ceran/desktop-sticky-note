@@ -22,6 +22,8 @@ use std::sync::OnceLock;
 const APP_NAME: &str = "Desktop Sticky Note";
 const DEFAULT_W: f64 = 260.0;
 const DEFAULT_H: f64 = 210.0;
+const MIN_W: f64 = 180.0;
+const MIN_H: f64 = 130.0;
 const DEFAULT_BACKGROUND: &str = "yellow";
 const DEFAULT_TEXT_COLOR: &str = "black";
 const DEFAULT_FONT: &str = "system";
@@ -494,6 +496,7 @@ unsafe fn show_note(note: Note) {
         frame,
         NSWindowStyleMask::NSTitledWindowMask
             | NSWindowStyleMask::NSClosableWindowMask
+            | NSWindowStyleMask::NSResizableWindowMask
             | NSWindowStyleMask::NSFullSizeContentViewWindowMask,
         NSBackingStoreBuffered,
         NO,
@@ -503,7 +506,9 @@ unsafe fn show_note(note: Note) {
     window.setTitle_(title);
     let _: () = msg_send![window, setTitleVisibility: 1u64];
     let _: () = msg_send![window, setTitlebarAppearsTransparent: YES];
+    let _: () = msg_send![window, setTitlebarSeparatorStyle: 1isize];
     let _: () = msg_send![window, setMovableByWindowBackground: YES];
+    let _: () = msg_send![window, setMinSize: NSSize::new(MIN_W, MIN_H)];
     let _: () = msg_send![window, setShowsResizeIndicator: NO];
     let _: () = msg_send![window, setReleasedWhenClosed: NO];
     let _: () = msg_send![window, setBackgroundColor: background_color(&note.style.background)];

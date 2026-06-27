@@ -51,6 +51,13 @@ cat > "$LAUNCH_AGENT" <<PLIST
   </array>
   <key>RunAtLoad</key>
   <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>LimitLoadToSessionType</key>
+  <string>Aqua</string>
   <key>StandardOutPath</key>
   <string>$LOG_DIR/$BIN_NAME.log</string>
   <key>StandardErrorPath</key>
@@ -65,6 +72,7 @@ for _ in {1..20}; do
   launchctl print "gui/$UID/$BUNDLE_ID" >/dev/null 2>&1 || break
   sleep 0.25
 done
+launchctl enable "gui/$UID/$BUNDLE_ID"
 launchctl bootstrap "gui/$UID" "$LAUNCH_AGENT" || {
   sleep 1
   launchctl bootstrap "gui/$UID" "$LAUNCH_AGENT"

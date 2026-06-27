@@ -7,8 +7,9 @@ A tiny native macOS sticky note app written in Rust.
 - Shows editable sticky notes on the desktop layer.
 - Lets you create more notes from the menu bar icon.
 - Lets you change the selected note's note color, font color, font, and font size.
+- Lets you resize notes by dragging their edges or corners.
 - Saves note text, size, and position automatically.
-- Starts on login through a user LaunchAgent.
+- Starts on login through a user LaunchAgent and restarts after abnormal exits.
 - Keeps data in `~/Library/Application Support/Desktop Sticky Note/notes.json`.
 
 ## Use
