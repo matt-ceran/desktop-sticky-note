@@ -8,7 +8,7 @@ A tiny native macOS sticky note app written in Rust.
 - Lets you create more notes from the menu bar item.
 - Saves note text, size, and position automatically.
 - Starts on login through a user LaunchAgent.
-- Keeps data in `~/Library/Application Support/Desktop Post-It/notes.json`.
+- Keeps data in `~/Library/Application Support/Desktop Sticky Note/notes.json`.
 
 ## Install
 

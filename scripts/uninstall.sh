@@ -11,4 +11,4 @@ rm -f "$LAUNCH_AGENT"
 rm -rf "$APP_DIR"
 
 echo "Removed $APP_NAME"
-echo "Notes were left in: $HOME/Library/Application Support/Desktop Post-It"
+echo "Notes were left in: $HOME/Library/Application Support/Desktop Sticky Note"

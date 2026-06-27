@@ -19,7 +19,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-const APP_NAME: &str = "Desktop Post-It";
+const APP_NAME: &str = "Desktop Sticky Note";
 const DEFAULT_W: f64 = 260.0;
 const DEFAULT_H: f64 = 210.0;
 const MIN_W: f64 = 180.0;

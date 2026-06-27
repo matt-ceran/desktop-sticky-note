@@ -61,7 +61,14 @@ PLIST
 
 chmod 644 "$LAUNCH_AGENT"
 launchctl bootout "gui/$UID/$BUNDLE_ID" >/dev/null 2>&1 || true
-launchctl bootstrap "gui/$UID" "$LAUNCH_AGENT"
+for _ in {1..20}; do
+  launchctl print "gui/$UID/$BUNDLE_ID" >/dev/null 2>&1 || break
+  sleep 0.25
+done
+launchctl bootstrap "gui/$UID" "$LAUNCH_AGENT" || {
+  sleep 1
+  launchctl bootstrap "gui/$UID" "$LAUNCH_AGENT"
+}
 launchctl kickstart -k "gui/$UID/$BUNDLE_ID"
 
 echo "Installed $APP_NAME"
