@@ -548,6 +548,7 @@ unsafe fn show_note(note: Note) {
     let _: () = msg_send![text_view, setAutomaticQuoteSubstitutionEnabled: NO];
     let _: () = msg_send![text_view, setRichText: NO];
     let _: () = msg_send![text_view, setDelegate: STATE.with(|state| state.borrow().as_ref().unwrap().delegate)];
+    let _: () = msg_send![text_view, setMenu: note_context_menu()];
 
     let _: () = msg_send![scroll, setDocumentView: text_view];
     window.setContentView_(scroll);
@@ -841,6 +842,19 @@ fn update_menu_states() {
 unsafe fn set_menu_state(item: usize, selected: bool) {
     let value = if selected { 1isize } else { 0isize };
     let _: () = msg_send![item as id, setState: value];
+}
+
+unsafe fn note_context_menu() -> id {
+    let menu = NSMenu::new(nil).autorelease();
+    let delegate = STATE.with(|state| state.borrow().as_ref().unwrap().delegate);
+    let _: () = msg_send![menu, setDelegate: delegate];
+    let _: () = msg_send![menu, addItem: menu_item("New Note", sel!(newNote:))];
+    add_separator(menu);
+    let _ = add_color_submenu(menu, "Note Color", BACKGROUNDS, sel!(setBackground:));
+    let _ = add_color_submenu(menu, "Text Color", TEXT_COLORS, sel!(setTextColor:));
+    let _ = add_font_submenu(menu);
+    let _ = add_font_size_submenu(menu);
+    menu
 }
 
 unsafe fn ns_string_to_string(value: id) -> String {
