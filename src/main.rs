@@ -22,8 +22,6 @@ use std::sync::OnceLock;
 const APP_NAME: &str = "Desktop Sticky Note";
 const DEFAULT_W: f64 = 260.0;
 const DEFAULT_H: f64 = 210.0;
-const MIN_W: f64 = 180.0;
-const MIN_H: f64 = 130.0;
 const NOTE_YELLOW: (f64, f64, f64) = (1.0, 0.91, 0.42);
 const NOTE_TEXT: (f64, f64, f64) = (0.08, 0.06, 0.02);
 
@@ -229,7 +227,6 @@ unsafe fn show_note(note: Note) {
         frame,
         NSWindowStyleMask::NSTitledWindowMask
             | NSWindowStyleMask::NSClosableWindowMask
-            | NSWindowStyleMask::NSResizableWindowMask
             | NSWindowStyleMask::NSFullSizeContentViewWindowMask,
         NSBackingStoreBuffered,
         NO,
@@ -240,7 +237,7 @@ unsafe fn show_note(note: Note) {
     let _: () = msg_send![window, setTitleVisibility: 1u64];
     let _: () = msg_send![window, setTitlebarAppearsTransparent: YES];
     let _: () = msg_send![window, setMovableByWindowBackground: YES];
-    let _: () = msg_send![window, setMinSize: NSSize::new(MIN_W, MIN_H)];
+    let _: () = msg_send![window, setShowsResizeIndicator: NO];
     let _: () = msg_send![window, setReleasedWhenClosed: NO];
     let _: () = msg_send![window, setBackgroundColor: note_color()];
     let _: () = msg_send![window, setOpaque: NO];
@@ -251,6 +248,8 @@ unsafe fn show_note(note: Note) {
         | NS_WINDOW_COLLECTION_BEHAVIOR_IGNORES_CYCLE
         | NS_WINDOW_COLLECTION_BEHAVIOR_FULL_SCREEN_AUXILIARY;
     let _: () = msg_send![window, setCollectionBehavior: behavior];
+    hide_window_button(window, 1);
+    hide_window_button(window, 2);
 
     let scroll: id = msg_send![class!(NSScrollView), alloc];
     let scroll: id = msg_send![scroll, initWithFrame: NSRect::new(
@@ -259,7 +258,10 @@ unsafe fn show_note(note: Note) {
     )];
     scroll.setAutoresizingMask_(18);
     let _: () = msg_send![scroll, setDrawsBackground: NO];
-    let _: () = msg_send![scroll, setHasVerticalScroller: YES];
+    let _: () = msg_send![scroll, setHasVerticalScroller: NO];
+    let _: () = msg_send![scroll, setHasHorizontalScroller: NO];
+    let _: () = msg_send![scroll, setAutohidesScrollers: YES];
+    let _: () = msg_send![scroll, setScrollerStyle: 1u64];
     let _: () = msg_send![scroll, setBorderType: 0u64];
 
     let text_view: id = msg_send![class!(NSTextView), alloc];
@@ -287,6 +289,14 @@ unsafe fn show_note(note: Note) {
         state.windows.insert(window as usize, note.id);
         state.text_views.insert(text_view as usize, note.id);
     });
+}
+
+unsafe fn hide_window_button(window: id, button: u64) {
+    let button: id = msg_send![window, standardWindowButton: button];
+    if button != nil {
+        let _: () = msg_send![button, setHidden: YES];
+        let _: () = msg_send![button, setEnabled: NO];
+    }
 }
 
 unsafe fn note_color() -> id {
