@@ -183,6 +183,7 @@ struct AppState {
     data_path: PathBuf,
     delegate: id,
     status_item: id,
+    status_menu: id,
     next_id: u64,
     saving: bool,
     active_note_id: Option<u64>,
@@ -220,6 +221,7 @@ fn main() {
                 data_path,
                 delegate,
                 status_item: nil,
+                status_menu: nil,
                 next_id,
                 saving: false,
                 active_note_id: None,
@@ -313,10 +315,14 @@ fn app_did_finish_launching() {
 unsafe fn setup_status_menu() {
     let status_item: id =
         msg_send![NSStatusBar::systemStatusBar(nil), statusItemWithLength: -1.0f64];
+    let _: id = msg_send![status_item, retain];
+    let _: () = msg_send![status_item, setAutosaveName: ns_string("DesktopStickyNoteStatusItem")];
+    let _: () = msg_send![status_item, setVisible: YES];
     let button: id = msg_send![status_item, button];
     set_status_icon(button);
 
     let menu = NSMenu::new(nil).autorelease();
+    let _: id = msg_send![menu, retain];
     let delegate = STATE.with(|state| state.borrow().as_ref().unwrap().delegate);
     let _: () = msg_send![menu, setDelegate: delegate];
 
@@ -336,6 +342,7 @@ unsafe fn setup_status_menu() {
 
     with_state(|state| {
         state.status_item = status_item;
+        state.status_menu = menu;
         state.background_items = background_items;
         state.text_color_items = text_color_items;
         state.font_items = font_items;
