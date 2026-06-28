@@ -324,7 +324,6 @@ struct CgsFunctions {
     main_connection_id: unsafe extern "C" fn() -> i32,
     copy_managed_display_spaces: unsafe extern "C" fn(i32) -> id,
     copy_spaces_for_windows: Option<unsafe extern "C" fn(i32, c_int, id) -> id>,
-    move_windows_to_managed_space: Option<unsafe extern "C" fn(i32, id, u64) -> c_int>,
 }
 
 thread_local! {
@@ -470,7 +469,6 @@ fn app_did_finish_launching() {
             create_note(None);
         } else {
             refresh_desktop_windows();
-            sync_saved_window_desktops();
         }
         sync_reminders();
     }
@@ -591,18 +589,33 @@ fn refresh_desktop_windows() {
     let frames_changed = persist_visible_window_frames();
     let active_desktops = unsafe { current_desktops() };
     let active_desktop_ids = desktop_id_set(&active_desktops);
-    let notes = STATE.with(|state| {
+    let window_keys = STATE.with(|state| {
         let mut state = state.borrow_mut();
         let Some(state) = state.as_mut() else {
             return Vec::new();
         };
         state.active_desktop_ids = active_desktop_ids;
         state.refreshing_desktops = true;
-        let windowed_note_ids = state.windows.values().copied().collect::<HashSet<_>>();
+        state.windows.keys().copied().collect::<Vec<_>>()
+    });
+
+    unsafe {
+        for window_key in window_keys {
+            let _: () = msg_send![window_key as id, close];
+        }
+    }
+
+    let notes = STATE.with(|state| {
+        let mut state = state.borrow_mut();
+        let Some(state) = state.as_mut() else {
+            return Vec::new();
+        };
+        state.windows.clear();
+        state.text_views.clear();
         let notes = state
             .notes
             .iter()
-            .filter(|note| !windowed_note_ids.contains(&note.id))
+            .filter(|note| note_is_on_active_desktop(state, note))
             .cloned()
             .collect::<Vec<_>>();
         if !state
@@ -894,30 +907,23 @@ fn move_active_note_to_current_desktop() {
     let moved = STATE.with(|state| {
         let mut state = state.borrow_mut();
         let Some(state) = state.as_mut() else {
-            return None;
+            return false;
         };
         let Some(note_id) = selected_note_id_for_move(state) else {
-            return None;
+            return false;
         };
         let Some(note_index) = state.notes.iter().position(|note| note.id == note_id) else {
-            return None;
+            return false;
         };
 
         state.active_desktop_ids.insert(target.desktop_id.clone());
         let frame = note_frame_for_target_desktop(&state.notes[note_index], &target);
         apply_note_frame(&mut state.notes[note_index], &target.desktop_id, frame);
         state.active_note_id = Some(note_id);
-        let window = window_for_note_id(state, note_id);
-        Some((window, target.desktop_id.clone()))
+        true
     });
 
-    if let Some((window, desktop_id)) = moved {
-        if let Some(window) = window {
-            suppress_frame_updates(window);
-            unsafe {
-                move_window_to_desktop(window as id, &desktop_id);
-            }
-        }
+    if moved {
         save_notes();
         refresh_desktop_windows();
         update_menu_states();
@@ -937,21 +943,6 @@ fn selected_note_id_for_move(state: &AppState) -> Option<u64> {
                 .map(|note| note.id)
         })
         .or_else(|| state.notes.last().map(|note| note.id))
-}
-
-fn window_for_note_id(state: &AppState, note_id: u64) -> Option<usize> {
-    state
-        .windows
-        .iter()
-        .find_map(|(window, id)| (*id == note_id).then_some(*window))
-}
-
-fn suppress_frame_updates(window: usize) {
-    with_state(|state| {
-        state
-            .suppressed_frame_updates
-            .insert(window, Instant::now() + Duration::from_secs(5));
-    });
 }
 
 fn note_frame_for_target_desktop(note: &Note, target: &NotePlacementTarget) -> NSRect {
@@ -1135,7 +1126,6 @@ unsafe fn show_note(note: Note) {
                 .insert(window as usize, Instant::now() + Duration::from_secs(5));
         }
     });
-    move_window_to_desktop(window, &desktop_id);
 }
 
 unsafe fn hide_window_button(window: id, button: u64) {
@@ -1365,11 +1355,9 @@ fn cgs_functions() -> Option<CgsFunctions> {
         let main_name = CString::new("CGSMainConnectionID").ok()?;
         let spaces_name = CString::new("CGSCopyManagedDisplaySpaces").ok()?;
         let window_spaces_name = CString::new("CGSCopySpacesForWindows").ok()?;
-        let move_name = CString::new("CGSMoveWindowsToManagedSpace").ok()?;
         let main_connection_id = dlsym(handle, main_name.as_ptr());
         let copy_managed_display_spaces = dlsym(handle, spaces_name.as_ptr());
         let copy_spaces_for_windows = dlsym(handle, window_spaces_name.as_ptr());
-        let move_windows_to_managed_space = dlsym(handle, move_name.as_ptr());
         if main_connection_id.is_null() || copy_managed_display_spaces.is_null() {
             return None;
         }
@@ -1385,11 +1373,6 @@ fn cgs_functions() -> Option<CgsFunctions> {
             copy_spaces_for_windows: (!copy_spaces_for_windows.is_null()).then(|| {
                 std::mem::transmute::<*mut c_void, unsafe extern "C" fn(i32, c_int, id) -> id>(
                     copy_spaces_for_windows,
-                )
-            }),
-            move_windows_to_managed_space: (!move_windows_to_managed_space.is_null()).then(|| {
-                std::mem::transmute::<*mut c_void, unsafe extern "C" fn(i32, id, u64) -> c_int>(
-                    move_windows_to_managed_space,
                 )
             }),
         })
@@ -1583,58 +1566,6 @@ unsafe fn managed_space_id_for_window(window: id) -> Option<u64> {
 unsafe fn desktop_id_for_window_space(window: id) -> Option<String> {
     managed_space_id_for_window(window)
         .and_then(|space_id| desktop_id_for_managed_space_id(space_id))
-}
-
-unsafe fn move_window_to_desktop(window: id, desktop_id: &str) -> bool {
-    let Some(space_id) = managed_space_id_from_desktop_id(desktop_id) else {
-        return false;
-    };
-    let Some(functions) = cgs_functions() else {
-        return false;
-    };
-    let Some(move_windows_to_managed_space) = functions.move_windows_to_managed_space else {
-        return false;
-    };
-
-    let window_number: isize = msg_send![window, windowNumber];
-    if window_number <= 0 {
-        return false;
-    }
-    let number: id = msg_send![class!(NSNumber), numberWithUnsignedInteger: window_number as usize];
-    let windows: id = msg_send![class!(NSArray), arrayWithObject: number];
-    let connection = (functions.main_connection_id)();
-    move_windows_to_managed_space(connection, windows, space_id) == 0
-}
-
-fn sync_saved_window_desktops() {
-    let windows = STATE.with(|state| {
-        let state = state.borrow();
-        let Some(state) = state.as_ref() else {
-            return Vec::new();
-        };
-        state
-            .windows
-            .iter()
-            .filter_map(|(window, note_id)| {
-                state
-                    .notes
-                    .iter()
-                    .find(|note| note.id == *note_id)
-                    .map(|note| (*window, note_desktop_id(note).to_string()))
-            })
-            .collect::<Vec<_>>()
-    });
-
-    with_state(|state| state.refreshing_desktops = true);
-    for (window, _) in &windows {
-        suppress_frame_updates(*window);
-    }
-    unsafe {
-        for (window, desktop_id) in windows {
-            move_window_to_desktop(window as id, &desktop_id);
-        }
-    }
-    with_state(|state| state.refreshing_desktops = false);
 }
 
 unsafe fn dict_object(dict: id, key: &str) -> id {
