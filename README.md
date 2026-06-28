@@ -22,6 +22,7 @@ Click the `Sticky` item in the macOS menu bar.
 
 - `New Note` creates another sticky note.
 - New notes are created on the desktop/Space for the monitor where you opened the menu.
+- `Move Selected Note to This Desktop` pins the note you last clicked or typed in to the desktop/Space you are currently viewing.
 - `Note Color`, `Text Color`, `Font`, and `Font Size` apply to the note you last clicked or typed in.
 - Choosing the black note color automatically switches the text to white.
 - Type a date as `MM/DD/YYYY` to schedule that day; date-only reminders fire at 9:00 AM.

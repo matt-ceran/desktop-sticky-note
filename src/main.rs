@@ -603,7 +603,12 @@ fn refresh_desktop_windows() {
             .filter(|note| note_is_on_active_desktop(state, note))
             .cloned()
             .collect::<Vec<_>>();
-        state.active_note_id = notes.last().map(|note| note.id);
+        if !state
+            .active_note_id
+            .is_some_and(|note_id| state.notes.iter().any(|note| note.id == note_id))
+        {
+            state.active_note_id = notes.last().map(|note| note.id);
+        }
         notes
     });
 
@@ -634,6 +639,11 @@ unsafe fn setup_status_menu() {
 
     let new_item = menu_item("New Note", sel!(newNote:));
     let _: () = msg_send![menu, addItem: new_item];
+    let move_item = menu_item(
+        "Move Selected Note to This Desktop",
+        sel!(moveSelectedNoteHere:),
+    );
+    let _: () = msg_send![menu, addItem: move_item];
     add_separator(menu);
 
     let background_items = add_color_submenu(menu, "Note Color", BACKGROUNDS, sel!(setBackground:));
@@ -821,6 +831,79 @@ fn save_note_frame_without_reassigning_desktop(note: &mut Note, frame: NSRect) {
     apply_note_frame(note, &desktop_id, frame);
 }
 
+fn move_active_note_to_current_desktop() {
+    let target = note_placement_target();
+    let moved = STATE.with(|state| {
+        let mut state = state.borrow_mut();
+        let Some(state) = state.as_mut() else {
+            return false;
+        };
+        let Some(note_id) = selected_note_id_for_move(state) else {
+            return false;
+        };
+        let Some(note_index) = state.notes.iter().position(|note| note.id == note_id) else {
+            return false;
+        };
+
+        state.active_desktop_ids.insert(target.desktop_id.clone());
+        let frame = note_frame_for_target_desktop(&state.notes[note_index], &target);
+        apply_note_frame(&mut state.notes[note_index], &target.desktop_id, frame);
+        state.active_note_id = Some(note_id);
+        true
+    });
+
+    if moved {
+        save_notes();
+        refresh_desktop_windows();
+        update_menu_states();
+    }
+}
+
+fn selected_note_id_for_move(state: &AppState) -> Option<u64> {
+    state
+        .active_note_id
+        .filter(|note_id| state.notes.iter().any(|note| note.id == *note_id))
+        .or_else(|| {
+            state
+                .notes
+                .iter()
+                .rev()
+                .find(|note| note_is_on_active_desktop(state, note))
+                .map(|note| note.id)
+        })
+        .or_else(|| state.notes.last().map(|note| note.id))
+}
+
+fn note_frame_for_target_desktop(note: &Note, target: &NotePlacementTarget) -> NSRect {
+    let mut placement = note_placement_for_desktop(note, &target.desktop_id);
+    if !note.placements.contains_key(&target.desktop_id) {
+        placement = clamp_placement_to_target(placement, target);
+    }
+    frame_from_placement(&placement)
+}
+
+fn clamp_placement_to_target(
+    mut placement: NotePlacement,
+    target: &NotePlacementTarget,
+) -> NotePlacement {
+    let Some(frame) = target.visible_frame else {
+        return placement;
+    };
+
+    let max_w = (frame.size.width - 40.0).max(MIN_W);
+    let max_h = (frame.size.height - 40.0).max(MIN_H);
+    placement.w = clamp(placement.w, MIN_W, max_w);
+    placement.h = clamp(placement.h, MIN_H, max_h);
+
+    let min_x = frame.origin.x + 20.0;
+    let max_x = frame.origin.x + frame.size.width - placement.w - 20.0;
+    let min_y = frame.origin.y + 20.0;
+    let max_y = frame.origin.y + frame.size.height - placement.h - 20.0;
+    placement.x = clamp(placement.x, min_x, max_x);
+    placement.y = clamp(placement.y, min_y, max_y);
+    placement
+}
+
 fn persist_visible_window_frames() -> bool {
     let windows = STATE.with(|state| {
         let state = state.borrow();
@@ -867,6 +950,7 @@ fn create_note(text: Option<String>) {
         let placements = HashMap::from([(target.desktop_id.clone(), placement)]);
         let id = state.next_id;
         state.next_id += 1;
+        state.active_note_id = Some(id);
         let note = Note {
             id,
             desktop_id: target.desktop_id.clone(),
@@ -965,7 +1049,6 @@ unsafe fn show_note(note: Note) {
     with_state(|state| {
         state.windows.insert(window as usize, note.id);
         state.text_views.insert(text_view as usize, note.id);
-        state.active_note_id = Some(note.id);
     });
 }
 
@@ -1098,15 +1181,6 @@ fn clamp(value: f64, min: f64, max: f64) -> f64 {
     } else {
         value.max(min).min(max)
     }
-}
-
-unsafe fn desktop_id_for_window(window: id) -> Option<String> {
-    let frame: NSRect = msg_send![window, frame];
-    let center = NSPoint::new(
-        frame.origin.x + frame.size.width / 2.0,
-        frame.origin.y + frame.size.height / 2.0,
-    );
-    desktop_id_for_screen(screen_for_point(center))
 }
 
 unsafe fn desktop_id_for_screen(screen: id) -> Option<String> {
@@ -1398,29 +1472,16 @@ fn update_frame(notification: id) {
 fn activate_note(notification: id) {
     unsafe {
         let window: id = msg_send![notification, object];
-        let frame: NSRect = msg_send![window, frame];
-        let desktop_id = desktop_id_for_window(window);
         let window_key = window as usize;
         with_state(|state| {
             if let Some(note_id) = state.windows.get(&window_key).copied() {
-                let should_reassign = state
-                    .notes
-                    .iter()
-                    .find(|note| note.id == note_id)
-                    .map(|note| !note_is_on_active_desktop(state, note))
-                    .unwrap_or(false);
-                if should_reassign {
-                    if let Some(desktop_id) = &desktop_id {
-                        if let Some(note) = state.notes.iter_mut().find(|note| note.id == note_id) {
-                            apply_note_frame(note, desktop_id, frame);
-                        }
-                    }
+                if state.notes.iter().any(|note| note.id == note_id) {
+                    state.active_note_id = Some(note_id);
                 }
-                state.active_note_id = Some(note_id);
             }
         });
     }
-    save_notes();
+    update_menu_states();
 }
 
 fn close_note(notification: id) {
@@ -1435,7 +1496,7 @@ fn close_note(notification: id) {
                     state.notes.retain(|note| note.id != note_id);
                     deleted_note = true;
                 }
-                if state.active_note_id == Some(note_id) {
+                if !state.refreshing_desktops && state.active_note_id == Some(note_id) {
                     state.active_note_id = state
                         .notes
                         .iter()
@@ -2295,6 +2356,13 @@ unsafe fn note_context_menu() -> id {
     let delegate = STATE.with(|state| state.borrow().as_ref().unwrap().delegate);
     let _: () = msg_send![menu, setDelegate: delegate];
     let _: () = msg_send![menu, addItem: menu_item("New Note", sel!(newNote:))];
+    let _: () = msg_send![
+        menu,
+        addItem: menu_item(
+            "Move Selected Note to This Desktop",
+            sel!(moveSelectedNoteHere:)
+        )
+    ];
     add_separator(menu);
     let _ = add_color_submenu(menu, "Note Color", BACKGROUNDS, sel!(setBackground:));
     let _ = add_color_submenu(menu, "Text Color", TEXT_COLORS, sel!(setTextColor:));
@@ -2325,6 +2393,10 @@ fn delegate_class() -> &'static Class {
                 application_will_terminate as extern "C" fn(&Object, Sel, id),
             );
             decl.add_method(sel!(newNote:), new_note as extern "C" fn(&Object, Sel, id));
+            decl.add_method(
+                sel!(moveSelectedNoteHere:),
+                move_selected_note_here as extern "C" fn(&Object, Sel, id),
+            );
             decl.add_method(sel!(quit:), quit as extern "C" fn(&Object, Sel, id));
             decl.add_method(
                 sel!(setBackground:),
@@ -2397,6 +2469,10 @@ extern "C" fn application_will_terminate(_: &Object, _: Sel, _: id) {
 
 extern "C" fn new_note(_: &Object, _: Sel, _: id) {
     create_note(None);
+}
+
+extern "C" fn move_selected_note_here(_: &Object, _: Sel, _: id) {
+    move_active_note_to_current_desktop();
 }
 
 extern "C" fn quit(_: &Object, _: Sel, _: id) {
@@ -2486,6 +2562,101 @@ mod tests {
 
     fn numeric_date(date: NaiveDate) -> String {
         format!("{:02}/{:02}/{}", date.month(), date.day(), date.year())
+    }
+
+    fn test_note(id: u64, desktop_id: &str) -> Note {
+        let placement = NotePlacement {
+            x: 40.0 + id as f64,
+            y: 50.0 + id as f64,
+            w: DEFAULT_W,
+            h: DEFAULT_H,
+        };
+        Note {
+            id,
+            desktop_id: desktop_id.to_string(),
+            x: placement.x,
+            y: placement.y,
+            w: placement.w,
+            h: placement.h,
+            text: String::new(),
+            style: NoteStyle::default(),
+            placements: HashMap::from([(desktop_id.to_string(), placement)]),
+            reminders: Vec::new(),
+            legacy_reminder: None,
+        }
+    }
+
+    fn test_state(
+        notes: Vec<Note>,
+        active_desktop_id: &str,
+        active_note_id: Option<u64>,
+    ) -> AppState {
+        AppState {
+            notes,
+            windows: HashMap::new(),
+            text_views: HashMap::new(),
+            data_path: PathBuf::new(),
+            delegate: nil,
+            status_item: nil,
+            status_menu: nil,
+            next_id: 1,
+            saving: false,
+            active_note_id,
+            default_style: NoteStyle::default(),
+            background_items: Vec::new(),
+            text_color_items: Vec::new(),
+            font_items: Vec::new(),
+            font_size_items: Vec::new(),
+            active_desktop_ids: HashSet::from([active_desktop_id.to_string()]),
+            refreshing_desktops: false,
+        }
+    }
+
+    #[test]
+    fn move_selection_keeps_hidden_active_note() {
+        let state = test_state(
+            vec![test_note(1, "space:one"), test_note(2, "space:two")],
+            "space:two",
+            Some(1),
+        );
+
+        assert_eq!(selected_note_id_for_move(&state), Some(1));
+    }
+
+    #[test]
+    fn move_selection_falls_back_to_visible_note() {
+        let state = test_state(
+            vec![test_note(1, "space:one"), test_note(2, "space:two")],
+            "space:two",
+            None,
+        );
+
+        assert_eq!(selected_note_id_for_move(&state), Some(2));
+    }
+
+    #[test]
+    fn clamps_new_desktop_placement_to_visible_frame() {
+        let target = NotePlacementTarget {
+            desktop_id: "space:two".to_string(),
+            visible_frame: Some(NSRect::new(
+                NSPoint::new(0.0, 0.0),
+                NSSize::new(500.0, 400.0),
+            )),
+        };
+        let placement = clamp_placement_to_target(
+            NotePlacement {
+                x: -300.0,
+                y: 900.0,
+                w: 900.0,
+                h: 900.0,
+            },
+            &target,
+        );
+
+        assert_eq!(placement.x, 20.0);
+        assert_eq!(placement.y, 20.0);
+        assert_eq!(placement.w, 460.0);
+        assert_eq!(placement.h, 360.0);
     }
 
     #[test]
