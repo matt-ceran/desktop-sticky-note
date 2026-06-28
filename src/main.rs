@@ -586,7 +586,7 @@ fn active_space_changed() {
 }
 
 fn refresh_desktop_windows() {
-    let frames_changed = persist_visible_window_frames();
+    let frames_changed = persist_visible_window_frames(false);
     let active_desktops = unsafe { current_desktops() };
     let active_desktop_ids = desktop_id_set(&active_desktops);
     let window_keys = STATE.with(|state| {
@@ -629,7 +629,7 @@ fn refresh_desktop_windows() {
 
     unsafe {
         for note in notes {
-            show_note(note);
+            show_note(note, false);
         }
     }
     with_state(|state| state.refreshing_desktops = false);
@@ -975,7 +975,7 @@ fn clamp_placement_to_target(
     placement
 }
 
-fn persist_visible_window_frames() -> bool {
+fn persist_visible_window_frames(reassign_desktops: bool) -> bool {
     let windows = STATE.with(|state| {
         let state = state.borrow();
         let Some(state) = state.as_ref() else {
@@ -993,9 +993,23 @@ fn persist_visible_window_frames() -> bool {
         unsafe {
             let window = window_key as id;
             let frame: NSRect = msg_send![window, frame];
+            let window_desktop_id = if reassign_desktops {
+                None
+            } else {
+                desktop_id_for_window_space(window)
+            };
             with_state(|state| {
                 if let Some(note) = state.notes.iter_mut().find(|note| note.id == note_id) {
-                    save_note_window_frame(note, window, frame);
+                    if reassign_desktops {
+                        save_note_window_frame(note, window, frame);
+                    } else {
+                        if window_desktop_id.as_deref().is_some_and(|desktop_id| {
+                            !desktop_id.eq_ignore_ascii_case(note_desktop_id(note))
+                        }) {
+                            return;
+                        }
+                        save_note_frame_without_reassigning_desktop(note, frame);
+                    }
                     changed = true;
                 }
             });
@@ -1040,13 +1054,13 @@ fn create_note(text: Option<String>) {
     });
 
     unsafe {
-        show_note(note);
+        show_note(note, true);
     }
     save_notes();
     sync_reminders();
 }
 
-unsafe fn show_note(note: Note) {
+unsafe fn show_note(note: Note, make_key: bool) {
     let desktop_id = note_desktop_id(&note).to_string();
     let placement = note_placement_for_desktop(&note, &desktop_id);
     let frame = frame_from_placement(&placement);
@@ -1115,7 +1129,11 @@ unsafe fn show_note(note: Note) {
     let _: () = msg_send![scroll, setDocumentView: text_view];
     window.setContentView_(scroll);
     let _: () = msg_send![window, setDelegate: STATE.with(|state| state.borrow().as_ref().unwrap().delegate)];
-    window.makeKeyAndOrderFront_(nil);
+    if make_key {
+        window.makeKeyAndOrderFront_(nil);
+    } else {
+        let _: () = msg_send![window, orderFrontRegardless];
+    }
 
     with_state(|state| {
         state.windows.insert(window as usize, note.id);
@@ -2678,7 +2696,7 @@ extern "C" fn application_did_finish_launching(_: &Object, _: Sel, _: id) {
 
 extern "C" fn application_will_terminate(_: &Object, _: Sel, _: id) {
     with_state(|state| state.terminating = true);
-    persist_visible_window_frames();
+    persist_visible_window_frames(false);
     save_notes();
 }
 
@@ -2692,7 +2710,7 @@ extern "C" fn move_selected_note_here(_: &Object, _: Sel, _: id) {
 
 extern "C" fn quit(_: &Object, _: Sel, _: id) {
     with_state(|state| state.terminating = true);
-    persist_visible_window_frames();
+    persist_visible_window_frames(false);
     save_notes();
     unsafe {
         let _: () = msg_send![NSApp(), terminate: nil];
