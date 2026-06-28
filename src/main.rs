@@ -264,6 +264,7 @@ struct AppState {
     font_size_items: Vec<SizeMenuChoice>,
     active_desktop_ids: HashSet<String>,
     refreshing_desktops: bool,
+    terminating: bool,
     suppressed_frame_updates: HashMap<usize, Instant>,
 }
 
@@ -371,6 +372,7 @@ fn main() {
                 font_size_items: Vec::new(),
                 active_desktop_ids: HashSet::new(),
                 refreshing_desktops: false,
+                terminating: false,
                 suppressed_frame_updates: HashMap::new(),
             });
         });
@@ -1667,11 +1669,12 @@ fn close_note(notification: id) {
         with_state(|state| {
             if let Some(note_id) = state.windows.remove(&window_key) {
                 state.text_views.retain(|_, id| *id != note_id);
-                if !state.refreshing_desktops {
+                let internal_close = state.refreshing_desktops || state.terminating;
+                if !internal_close {
                     state.notes.retain(|note| note.id != note_id);
                     deleted_note = true;
                 }
-                if !state.refreshing_desktops && state.active_note_id == Some(note_id) {
+                if !internal_close && state.active_note_id == Some(note_id) {
                     state.active_note_id = state
                         .notes
                         .iter()
@@ -2639,6 +2642,7 @@ extern "C" fn application_did_finish_launching(_: &Object, _: Sel, _: id) {
 }
 
 extern "C" fn application_will_terminate(_: &Object, _: Sel, _: id) {
+    with_state(|state| state.terminating = true);
     save_notes();
 }
 
@@ -2651,6 +2655,8 @@ extern "C" fn move_selected_note_here(_: &Object, _: Sel, _: id) {
 }
 
 extern "C" fn quit(_: &Object, _: Sel, _: id) {
+    with_state(|state| state.terminating = true);
+    save_notes();
     unsafe {
         let _: () = msg_send![NSApp(), terminate: nil];
     }
@@ -2784,6 +2790,7 @@ mod tests {
             font_size_items: Vec::new(),
             active_desktop_ids: HashSet::from([active_desktop_id.to_string()]),
             refreshing_desktops: false,
+            terminating: false,
             suppressed_frame_updates: HashMap::new(),
         }
     }
