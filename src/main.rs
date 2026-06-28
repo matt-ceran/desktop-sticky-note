@@ -38,6 +38,9 @@ const DEFAULT_BACKGROUND: &str = "yellow";
 const DEFAULT_TEXT_COLOR: &str = "black";
 const DEFAULT_FONT: &str = "system";
 const DEFAULT_FONT_SIZE: f64 = 16.0;
+const STATUS_ITEM_LENGTH: f64 = 68.0;
+const STATUS_ICON_SIZE: f64 = 15.0;
+const STATUS_ICON_POINT_SIZE: f64 = 15.0;
 const DATE_ONLY_REMINDER_HOUR: u32 = 9;
 const SCHEDULER_TICK_SECONDS: u64 = 5;
 const REMINDER_LEADS: &[(i64, &str)] = &[
@@ -628,6 +631,7 @@ unsafe fn setup_status_menu() {
         msg_send![NSStatusBar::systemStatusBar(nil), statusItemWithLength: -1.0f64];
     let _: id = msg_send![status_item, retain];
     let _: () = msg_send![status_item, setAutosaveName: ns_string("DesktopStickyNoteStatusItem")];
+    let _: () = msg_send![status_item, setLength: STATUS_ITEM_LENGTH];
     let _: () = msg_send![status_item, setVisible: YES];
     let button: id = msg_send![status_item, button];
     set_status_icon(button);
@@ -759,19 +763,56 @@ unsafe fn set_status_icon(button: id) {
 
     if image != nil {
         let _: () = msg_send![image, setTemplate: YES];
+        let _: () = msg_send![image, setSize: NSSize::new(STATUS_ICON_SIZE, STATUS_ICON_SIZE)];
         let _: () = msg_send![button, setImage: image];
         let _: () = msg_send![button, setImagePosition: 2u64];
-        let _: () = msg_send![button, setImageScaling: 0u64];
+        let _: () = msg_send![button, setImageScaling: 2u64];
+        let can_hug_title: BOOL = msg_send![button, respondsToSelector: sel!(setImageHugsTitle:)];
+        if can_hug_title == YES {
+            let _: () = msg_send![button, setImageHugsTitle: YES];
+        }
     }
-    let _: () = msg_send![button, setTitle: ns_string(" Sticky")];
+    let font: id = msg_send![class!(NSFont), menuBarFontOfSize: 0.0f64];
+    if font != nil {
+        let _: () = msg_send![button, setFont: font];
+    }
+    let _: () = msg_send![button, setTitle: ns_string("Sticky")];
     let _: () = msg_send![button, setToolTip: ns_string(APP_NAME)];
 }
 
 unsafe fn system_symbol(name: &str) -> id {
-    msg_send![class!(NSImage),
+    let image: id = msg_send![class!(NSImage),
         imageWithSystemSymbolName: ns_string(name)
         accessibilityDescription: ns_string(APP_NAME)
-    ]
+    ];
+    if image == nil {
+        return nil;
+    }
+
+    let Some(config_class) = Class::get("NSImageSymbolConfiguration") else {
+        return image;
+    };
+    let can_configure: BOOL =
+        msg_send![image, respondsToSelector: sel!(imageWithSymbolConfiguration:)];
+    if can_configure == NO {
+        return image;
+    }
+
+    let config: id = msg_send![config_class,
+        configurationWithPointSize: STATUS_ICON_POINT_SIZE
+        weight: 0.23f64
+        scale: 2isize
+    ];
+    if config == nil {
+        return image;
+    }
+
+    let configured: id = msg_send![image, imageWithSymbolConfiguration: config];
+    if configured == nil {
+        image
+    } else {
+        configured
+    }
 }
 
 unsafe fn ns_string(value: &str) -> id {
