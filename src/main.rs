@@ -1073,6 +1073,7 @@ unsafe fn show_note(note: Note, make_key: bool) {
         NSBackingStoreBuffered,
         NO,
     );
+    let _: () = msg_send![window, setFrame: frame display: NO];
 
     let title = NSString::alloc(nil).init_str("");
     window.setTitle_(title);
@@ -1086,7 +1087,6 @@ unsafe fn show_note(note: Note, make_key: bool) {
     let _: () = msg_send![window, setBackgroundColor: background_color(&note.style.background)];
     let _: () = msg_send![window, setOpaque: NO];
     let _: () = msg_send![window, setHasShadow: YES];
-    let _: () = msg_send![window, setLevel: desktop_note_level()];
     let behavior = NS_WINDOW_COLLECTION_BEHAVIOR_MANAGED
         | NS_WINDOW_COLLECTION_BEHAVIOR_IGNORES_CYCLE
         | NS_WINDOW_COLLECTION_BEHAVIOR_FULL_SCREEN_AUXILIARY;
@@ -1134,6 +1134,7 @@ unsafe fn show_note(note: Note, make_key: bool) {
     } else {
         let _: () = msg_send![window, orderFrontRegardless];
     }
+    let _: () = msg_send![window, setLevel: desktop_note_level()];
 
     with_state(|state| {
         state.windows.insert(window as usize, note.id);
